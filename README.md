@@ -4,6 +4,8 @@
 
 FTDX10 Monitor talks to the radio over its USB cable (CAT), shows a large display with meters and every everyday control, and serves a password-protected web page so you can listen, talk and tune from a phone anywhere, over Tailscale. It has the same look and layout as IC9700 Monitor (by the same author), without the spectrum scope, and both programs can run at the same time.
 
+![FTDX10 Monitor on Windows](screenshots/desktop-vfo.png)
+
 ## What's in this repository
 
 | Part | What it is | Docs |
@@ -28,6 +30,14 @@ Also: [Troubleshooting](docs/troubleshooting.md) · [CAT commands used](docs/cat
 - **Memories:** read 001-099 from the radio, recall to VFO or select on the rig, CSV import / export; scanner with a band-activity plot.
 - **QSO log** with dupe check, ADIF and CSV export.
 - **Phone access** over Tailscale with HTTPS: hear the radio, hold TALK to transmit, tune and change settings.
+
+<p>
+<img src="screenshots/desktop-tune.png" width="240" alt="Desktop: TUNE tab with modes and bands">
+<img src="screenshots/desktop-levels.png" width="240" alt="Desktop: LEVELS tab">
+<img src="screenshots/desktop-func.png" width="240" alt="Desktop: FUNC tab, S-meter above S9">
+</p>
+
+*The Windows program on a live FTDX10: TUNE, LEVELS and FUNC tabs.*
 
 <p>
 <img src="screenshots/phone-tune.png" width="240" alt="Phone page: tuning, bands and modes">
