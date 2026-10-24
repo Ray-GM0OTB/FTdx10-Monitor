@@ -1,0 +1,19 @@
+# personal data - never commit
+ftdx10_settings.json
+ftdx10_qso_log.json
+ftdx10_https.crt
+ftdx10_https.key
+*.keystore
+*.jks
+# build output
+build/
+dist/
+installer/
+*.spec
+*.apk
+apk_build*/
+build_apk_log.txt
+build_html_apk_log.txt
+__pycache__/
+build_log.txt
+FTDX10 Monitor/
