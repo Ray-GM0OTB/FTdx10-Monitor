@@ -12,6 +12,7 @@ FTDX10 Monitor talks to the radio over its USB cable (CAT), shows a large displa
 | --- | --- | --- |
 | **FTDX10 Monitor** (`FTDX10_Monitor.py`) | The Windows program: display, meters, all controls, memories, scanner, QSO log | [Desktop app](docs/desktop-app.md) |
 | **Phone page** | Remote control in the phone's browser: display, meter, tuning, modes, bands, levels, functions, memories, audio both ways | [Phone page](docs/phone-page.md) |
+| **Android app** | *FTDX10* - the phone page as an installable Android app, built on the PC with `build_apk.bat` | [Android app](docs/android-app.md) |
 | **Windows installer / portable exe** | Builds a setup `.exe`, or a single portable `.exe`, so it runs without Python | [Windows builds](docs/windows-installer.md) |
 
 Also: [Troubleshooting](docs/troubleshooting.md) · [CAT commands used](docs/cat-reference.md) · [Changelog](CHANGELOG.md)
@@ -25,8 +26,10 @@ Also: [Troubleshooting](docs/troubleshooting.md) · [CAT commands used](docs/cat
 - **Quick keys:** IPO / AMP1 / AMP2, ATT 6 / 12 / 18 dB, AGC F / M / S / AUTO, NB, NR, DNF, NAR, LOCK and TRANSMIT.
 - **All modes** (LSB, USB, CW-U/L, AM, AM-N, FM, FM-N, RTTY-L/U, DATA-L/U/FM, PSK) and **12 band keys**, 160 m to 4 m.
 - **13 levels:** AF, RF, SQL, NR, NB, IF shift, CW pitch, RF power, mic, processor, key speed, monitor, VOX gain.
+- **Antenna tuner:** the ATU key starts the radio's tuning cycle, from the PC or the phone.
 - **PROC, VOX, MON, BK-IN, keyer, RIT/XIT** with clarifier offset, FM repeater shift and CTCSS TONE / TSQL.
 - **CW:** free text and 6 macros sent through the rig's keyer memory 5, plus playback of keyer memories 1-4.
+- **CW decoder** on the radio's receive audio: finds the tone and follows the speed by itself; text on the PC and the phone.
 - **Memories:** read 001-099 from the radio, recall to VFO or select on the rig, CSV import / export; scanner with a band-activity plot.
 - **QSO log** with dupe check, ADIF and CSV export.
 - **Phone access** over Tailscale with HTTPS: hear the radio, hold TALK to transmit, tune and change settings.

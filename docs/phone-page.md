@@ -27,7 +27,7 @@ Audio needs one Python package on the PC: `py -m pip install sounddevice`. The b
 | --- | --- |
 | (top) | Power ⏻ ON / OFF (off asks first), connection, frequency, S / Po meter |
 | TUNE | Band, frequency and step, mode, VFO A / B |
-| FUNC | Functions (IPO/AMP, ATT, AGC, NB, NR, DNF, NAR and more); FM repeater shift; CTCSS (tap to cycle OFF → TONE → TSQL); CW macros; clarifier RIT / XIT |
+| FUNC | Functions (IPO/AMP, ATT, AGC, NB, NR, DNF, NAR and more); ATU (tap to tune, long-press for tuner off); FM repeater shift; CTCSS (tap to cycle OFF → TONE → TSQL); CW macros; CW decoder (ON / OFF, sensitivity, decoded text, CLEAR); clarifier RIT / XIT |
 | LEVELS | Level sliders. AF is the radio's own speaker volume; the listening level on the phone is set on the AUDIO tab. |
 | MEMORY | Memory channels: tap to recall |
 | AUDIO | Audio on/off, volume, mic gain, TX tone, hold or tap mode, squelch muting; install as an app |

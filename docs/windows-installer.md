@@ -4,7 +4,7 @@ Two ways to run FTDX10 Monitor without Python, both built from `FTDX10_Monitor.p
 
 | Build | Script | Result | Settings kept in |
 | --- | --- | --- | --- |
-| **Installer** | `build_installer.bat` | `installer\FTDX10_Monitor_Setup_1.7.exe`: installs to Program Files with Start-menu entry and uninstaller | `%LOCALAPPDATA%\FTDX10 Monitor` |
+| **Installer** | `build_installer.bat` | `installer\FTDX10_Monitor_Setup_2.3.exe`: installs to Program Files with Start-menu entry and uninstaller | `%LOCALAPPDATA%\FTDX10 Monitor` |
 | **Portable** | `build_portable_exe.bat` | `FTDX10 Monitor\FTDX10 Monitor.exe`: one file, run from any folder or USB stick | Next to the `.exe` |
 
 ## Building the installer

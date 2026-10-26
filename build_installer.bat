@@ -4,7 +4,7 @@ rem  FTDX10 Monitor - builds the Windows installer
 rem  Put this file, FTDX10_Monitor.py and FTDX10_Monitor_installer.iss in one
 rem  folder (plus ftdx10.ico / ftdx10.png if you have them),
 rem  then double-click this file.
-rem  Result: installer\FTDX10_Monitor_Setup_1.7.exe
+rem  Result: installer\FTDX10_Monitor_Setup_2.3.exe
 rem ============================================================
 setlocal
 cd /d "%~dp0"
@@ -44,7 +44,7 @@ if not defined ISCC (
 %ISCC% FTDX10_Monitor_installer.iss || goto :fail
 
 echo.
-echo Done. Installer: %CD%\installer\FTDX10_Monitor_Setup_1.7.exe
+echo Done. Installer: %CD%\installer\FTDX10_Monitor_Setup_2.3.exe
 explorer installer
 pause
 exit /b 0

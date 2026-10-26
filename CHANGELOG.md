@@ -1,25 +1,23 @@
 # Changelog
 
-## Version 1.7 – first public release
+## Version 2.3
 
-### Desktop program
-- CAT control of the Yaesu FTDX10 over USB, with the same look and layout as IC9700 Monitor (no spectrum scope).
-- Large VFO-A readout with mouse-wheel tuning per digit; VFO-B readout, A=B, B=A, swap, split, TX VFO.
-- Yaesu-style S-meter with peak hold, blue up to S9 and red above (PC and phone); TX view with Po, SWR, ALC, COMP and Id.
-- POWER key switches the radio on and off over CAT, from the PC or the phone.
-- Quick keys: IPO / AMP1 / AMP2, ATT 6 / 12 / 18 dB, AGC F / M / S / AUTO, NB, NR, DNF, NAR, LOCK, TRANSMIT with time-out.
-- All FTDX10 modes, 12 band keys from 160 m to 4 m, 13 level sliders.
-- PROC, VOX, MON, BK-IN, keyer, RIT / XIT, FM repeater shift and CTCSS.
-- CW text and macros through the rig's keyer memory; playback of keyer memories 1-4.
-- Memories read from the radio (001-099), CSV import / export, scanner with band-activity plot.
-- QSO log with dupe check, ADIF and CSV export.
-- When installed in Program Files, settings, the QSO log and the HTTPS certificate are kept in `%LOCALAPPDATA%\FTDX10 Monitor`.
+### Look
+- Level sliders have red LED-style knobs, the same as IC9700 Monitor, glowing brighter the higher the value (IF shift: the further from centre). They replace the silver knobs; a knob stays grey until the radio has reported its level.
+- A note beside the ATU key says how to use it: click to tune, right-click for tuner off (phone: tap / long-press).
 
-### Phone
-- Password-protected phone page over Tailscale with HTTPS on ports 8075 / 8076, running alongside IC9700 Monitor.
-- Radio audio on the phone and TALK to transmit, following the radio's squelch.
-- Installable as an app from the phone's browser.
+### Antenna tuner
+- **ATU** key (FUNC tab, PC and phone) starts the FTDX10's tuning cycle, like holding the radio's TUNE key; the radio transmits a carrier while it tunes.
+- The key shows **TUNING** while it works, then the status bar says the tuner has matched, or that it couldn't. The key stays lit, and "ATU" shows on the display, while the tuner is on.
+- To switch the tuner off: right-click **ATU** on the PC, or long-press it on the phone.
 
-### Builds
-- Windows setup program built with `build_installer.bat`.
-- Single portable `.exe` built with `build_portable_exe.bat`.
+### CW decoder
+- Decodes CW from the radio's USB receive audio: **CW tab > CW DECODER**, or **View > CW decoder…**. Also on the phone page: **FUNC tab > CW decoder**.
+- **Sensitivity:** Auto, Low, Normal, High or Max. High and Max listen through a narrower filter matched to the sending speed and accept weaker signals. Auto runs at the most sensitive level and backs off by itself while it sees static.
+- Finds the CW tone by itself (300–1200 Hz), or follows the rig's CW pitch setting.
+- Follows the sending speed (about 5–50 WPM) and the signal level automatically.
+- Rejects static crashes, and doesn't print a lone E or T caused by one; stays quiet on plain noise.
+- Shows prosigns such as <AR>, <SK> and <KN>; characters it can't read show as `*`.
+
+### Android app
+- *FTDX10*, the phone page as an Android app (`FTDX10_Remote.apk`), built on the PC with `build_apk.bat`. Uses the Android tools already downloaded for the IC-9700 apps, if present.

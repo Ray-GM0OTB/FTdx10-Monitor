@@ -5,6 +5,7 @@ FTDX10 Monitor uses Yaesu's text CAT protocol: two-letter commands ending in `;`
 | Command | Purpose |
 | --- | --- |
 | ID | Identify the radio |
+| AC | Antenna tuner: AC000; off, AC001; on, AC002; start tuning; read with AC; |
 | PS | Power off (PS0;) / on (PS1;, sent twice: the first wakes the radio, the second follows 1–2 s later) |
 | AI | Auto information off/on |
 | IF / OI | Information on the main / sub VFO (frequency, mode, clarifier, memory, shift) |

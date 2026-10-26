@@ -2,8 +2,33 @@
 FTDX10 Monitor & Control  -  by GM0OTB
 ======================================
 
-Version 1.7 - CAT control panel for the Yaesu FTDX10 (HF / 50 / 70 MHz).
+Version 2.3 - CAT control panel for the Yaesu FTDX10 (HF / 50 / 70 MHz).
 Same look and layout as the IC-9700 Monitor 3.0, without the spectrum scope.
+
+New in 2.3
+  * Level sliders: red LED-style knobs, the same as IC9700 Monitor, glowing brighter the higher the
+    value (IF shift: the further from centre). Grey until the radio has reported the level.
+
+New in 2.2
+  * Notes beside the ATU key: click = tune, right-click = tuner off (phone: tap / long-press).
+
+New in 2.1 / 2.0
+  * Antenna tuner: the ATU key (FUNC tab, PC and phone) starts the radio's tuning cycle; the radio
+    transmits a carrier while it tunes. The key is lit while the tuner is on and shows TUNING while
+    it works. Right-click ATU (PC) or long-press it (phone) to switch the tuner off.
+
+New in 1.9
+  * CW decoder sensitivity: Auto, Low, Normal, High, Max (decoder window and phone page).
+    High / Max / Auto listen through a narrower filter matched to the sending speed and accept
+    weaker signals; Auto runs at the most sensitive level and backs off by itself while it sees
+    static. Static crashes are rejected (a CW tone is narrow, a crash is wide) and a lone E or T
+    from a crash is not printed.
+
+New in 1.8
+  * CW decoder (CW tab > CW DECODER, or View > CW decoder): decodes CW from the radio's USB
+    receive audio. Finds the tone by itself (or uses the rig's CW pitch), follows the speed
+    (about 5-50 WPM) and the signal level, and shows the text in its own window. The phone page
+    shows it too (FUNC tab > CW decoder). Uses the same audio set-up as the phone (sounddevice).
 
 New in 1.7
   * POWER key (top left, PC and phone): switches the radio on and off over CAT (PS0; / PS1;).
@@ -67,6 +92,7 @@ import csv
 import hashlib
 import hmac
 import json
+import math
 import os
 import queue
 import re
@@ -154,7 +180,7 @@ KEY_PATH = os.path.join(BASE_DIR, "ftdx10_https.key")
 QSO_PATH = os.path.join(BASE_DIR, "ftdx10_qso_log.json")
 BAUD_RATES = [4800, 9600, 19200, 38400]
 AUTO_PORT = "Auto-detect"
-APP_VERSION = "1.7"
+APP_VERSION = "2.3"
 APP_AUTHOR = "GM0OTB"
 RIG_TITLE = "FTDX10"
 
@@ -276,6 +302,7 @@ TOGGLES = {
     "bkin":  ("BK-IN", "BI", (0, 1), None, 1),
     "keyer": ("KEYER", "KR", (0, 1), None, 1),
     "lock":  ("LOCK",  "LK", (0, 1), None, 1),
+    "atu":   ("ATU",   "AC00", (0, 1), None, 1),   # internal antenna tuner; read with AC; (see read_toggle)
     "rit":   ("RIT",   "RT", (0, 1), None, 1),
     "xit":   ("XIT",   "XT", (0, 1), None, 1),
     "split": ("SPLIT", "ST", (0, 1), None, 1),
@@ -608,6 +635,7 @@ def init_fonts(root):
         mono=tkfont.Font(family=mono, size=10),
         mono_b=tkfont.Font(family=mono, size=10, weight="bold"),
         mono_s=tkfont.Font(family=mono, size=8, weight="bold"),
+        cw=tkfont.Font(family=mono, size=14, weight="bold"),
         freq=tkfont.Font(family=lcd, size=40, weight=lcd_w),
         freq_s=tkfont.Font(family=lcd, size=24, weight=lcd_w),
         sub=tkfont.Font(family=lcd, size=19, weight=lcd_w),
@@ -760,6 +788,7 @@ class LevelSlider(tk.Canvas):
         self.command = command
         self.center = center
         self.color = color
+        self.bg_col = parent.cget("bg")
         self.bind("<Configure>", lambda e: self.redraw())
         self.bind("<Button-1>", self._drag)
         self.bind("<B1-Motion>", self._drag)
@@ -792,8 +821,15 @@ class LevelSlider(tk.Canvas):
     def _nudge(self, d):
         self._apply(self.value + d)
 
-    # brushed-silver knob shades, top to bottom
-    SILVER = ["#f4f6f8", "#e3e7ec", "#d2d7de", "#c3c9d1", "#b6bcc5", "#a9b0ba", "#9aa1ac", "#8c939e"]
+    LED_OFF = "#3a0b09"          # unlit red LED
+    LED_ON = "#ff2b1c"           # fully lit
+    LED_HOT = "#ffd0c4"          # the hot centre of a bright LED
+
+    def brightness(self):
+        """0..1: how brightly the LED knob glows. Higher value = brighter; centre sliders glow
+        brighter the further they are from the centre."""
+        frac = self.value / self.maxval if self.maxval else 0
+        return abs(frac - 0.5) * 2 if self.center else frac
 
     def redraw(self):
         self.delete("all")
@@ -802,6 +838,14 @@ class LevelSlider(tk.Canvas):
         h = self.winfo_height() if self.winfo_height() > 4 else px(26)
         cy = h / 2
         x = pad + (self.value / self.maxval) * (w - 2 * pad)
+        bg = self.bg_col
+        b = self.brightness() if self.known else 0.0
+        r = px(9)
+        if self.known and b > 0.05:                               # glow around a lit LED, under the groove
+            for i in range(4, 0, -1):
+                rr = r + px(i * 1.2)
+                self.create_oval(x - rr, cy - rr, x + rr, cy + rr, outline="",
+                                 fill=lerp_color(bg, self.LED_ON, b * 0.16 * (5 - i) / 4))
         # recessed square groove
         gh = px(3)
         self.create_rectangle(pad, cy - gh, w - pad, cy + gh, fill="#0e0f11", outline="#050506")
@@ -815,21 +859,25 @@ class LevelSlider(tk.Canvas):
             tx = pad + k * (w - 2 * pad) / 10
             tl = px(4) if k in (0, 5, 10) else px(2)
             self.create_line(tx, cy + gh + px(3), tx, cy + gh + px(3) + tl, fill="#5c616a")
-        # square silver knob
-        kw, kh = px(9), px(10)
-        x1, y1, x2, y2 = x - kw, cy - kh, x + kw, cy + kh
-        self.create_rectangle(x1 + 1, y1 + 2, x2 + 2, y2 + 2, fill="#08090a", outline="")    # shadow
-        n = len(self.SILVER)
-        for i, col in enumerate(self.SILVER):
-            ya = y1 + (y2 - y1) * i / n
-            yb = y1 + (y2 - y1) * (i + 1) / n
-            self.create_rectangle(x1, ya, x2, yb + 1, fill=col if self.known else lerp_color(col, "#555a62", 0.6),
-                                  outline="")
-        self.create_rectangle(x1, y1, x2, y2, outline="#6f7680")
-        self.create_line(x1 + 1, y1 + 1, x2 - 1, y1 + 1, fill="#ffffff")                     # top bevel
-        for gx in (-px(3), 0, px(3)):                                                        # grip lines
-            self.create_line(x + gx, y1 + px(4), x + gx, y2 - px(3), fill="#7d8490")
-            self.create_line(x + gx + 1, y1 + px(4), x + gx + 1, y2 - px(3), fill="#f7f9fb")
+        # red LED knob in a black bezel, glowing brighter as the value rises
+        lit = 0.08 + 0.92 * b                                     # never quite dark once known
+        self.create_oval(x - r + 1, cy - r + 2, x + r + 2, cy + r + 3, fill="#060708", outline="")   # shadow
+        self.create_oval(x - r, cy - r, x + r, cy + r, fill="#141518", outline="#4a4f57")            # bezel
+        lr = r - px(2.5)
+        if not self.known:
+            lens = "#3a3d42"
+        else:
+            lens = lerp_color(self.LED_OFF, self.LED_ON, lit)
+        self.create_oval(x - lr, cy - lr, x + lr, cy + lr, fill=lens, outline="#050505")
+        if self.known:                                            # brighter core, hotter as it rises
+            for i, f in enumerate((0.72, 0.48, 0.26)):
+                cr = lr * f
+                col = lerp_color(lens, self.LED_HOT, b * (0.25 + 0.25 * i))
+                self.create_oval(x - cr, cy - cr, x + cr, cy + cr, fill=col, outline="")
+        hr = max(1.0, lr * 0.32)                                  # glass highlight
+        hx, hy = x - lr * 0.38, cy - lr * 0.42
+        self.create_oval(hx - hr, hy - hr * 0.7, hx + hr, hy + hr * 0.7, outline="",
+                         fill=lerp_color(lens, "#ffffff", 0.45 if self.known else 0.25))
 
 
 # -----------------------------------------------------------------
@@ -1135,6 +1183,294 @@ class AudioEngine:
         self.restart()
 
 
+MORSE = {
+    ".-": "A", "-...": "B", "-.-.": "C", "-..": "D", ".": "E", "..-.": "F", "--.": "G", "....": "H",
+    "..": "I", ".---": "J", "-.-": "K", ".-..": "L", "--": "M", "-.": "N", "---": "O", ".--.": "P",
+    "--.-": "Q", ".-.": "R", "...": "S", "-": "T", "..-": "U", "...-": "V", ".--": "W", "-..-": "X",
+    "-.--": "Y", "--..": "Z", "-----": "0", ".----": "1", "..---": "2", "...--": "3", "....-": "4",
+    ".....": "5", "-....": "6", "--...": "7", "---..": "8", "----.": "9", ".-.-.-": ".", "--..--": ",",
+    "..--..": "?", "-..-.": "/", "-...-": "=", "-....-": "-", ".--.-.": "@", "---...": ":",
+    ".----.": "'", "-.-.--": "!", ".-.-.": "<AR>", "...-.-": "<SK>", "-.--.": "<KN>",
+    ".-...": "<AS>", "-.-.-": "<KA>", "........": "<HH>", "...-.": "<SN>",
+}
+CWD_RATE = 4000                     # decoder works at 4 kHz (16 kHz radio audio averaged in fours)
+CWD_BLOCK = 40                      # 10 ms per detection block
+CWD_TONES = list(range(300, 1201, 50))
+# sensitivity: (longest window in 10 ms blocks, window per dot, signal gate, key-down level, key-up level);
+# the levels are multiples of the noise. Longer windows follow the measured speed.
+CWD_SENS = {"Low": (1, 0.0, 8.0, 3.5, 2.5), "Normal": (1, 0.0, 6.0, 3.0, 2.0),
+            "High": (2, 0.5, 4.5, 2.4, 1.7), "Max": (4, 0.7, 3.0, 1.8, 1.4),
+            "Auto": (4, 0.6, 3.0, 1.8, 1.4)}     # Auto backs off to High's levels while it sees junk
+CWD_SENS_NAMES = ["Auto", "Low", "Normal", "High", "Max"]
+
+
+class CwDecoder:
+    """CW decoder on the radio's USB receive audio. Finds the tone (or uses the rig's CW pitch),
+    follows the signal level and the sending speed by itself, and turns dots and dashes into text."""
+
+    def __init__(self, app):
+        self.app = app
+        self.q = deque(maxlen=100)                  # 4 s of 40 ms audio packets
+        self.ev = threading.Event()
+        self.active = False
+        self.error = ""
+        self.text = ""                              # everything decoded since CLEAR (last 4000 characters)
+        self.on_text = None                         # callbacks, run on the Tk thread
+        self.tone_mode = app.config.get("cwd_tone", "Auto")
+        self.sens = app.config.get("cwd_sens", "Auto")
+        self.coef = {f: 2.0 * math.cos(2 * math.pi * f / CWD_RATE) for f in CWD_TONES}
+        self.reset()
+
+    def reset(self):
+        self.buf = []
+        self.peak_by = {f: 0.0 for f in CWD_TONES}
+        self.floor_by = {f: None for f in CWD_TONES}
+        self.tone = 700
+        self.floor = None
+        self.peak = 0.0
+        self.nblk = 0                               # blocks since start: the noise level settles first
+        self.hist = []                              # the last few 10 ms blocks, for the longer windows
+        self.win_n = 2
+        self.junk_n = 0                             # Auto: recent junk (static crashes, unreadable letters)
+        self.junk_at = -10000
+        self.backoff = False
+        self.key = False                            # signal present now
+        self.pend = False                           # a mark has ended but a short dip could still join it
+        self.mark = 0                               # length of the current mark, 10 ms blocks
+        self.gap = 0                                # length of the current gap
+        self.unit = 6.0                             # dot length in 10 ms blocks (20 WPM to start with)
+        self.marks = []                             # recent mark lengths, for telling dots from dashes
+        self.sym = ""
+        self.spaced = True
+        self.held = ""                              # a lone E / T waiting to see what follows
+        self.level = 0.0
+        self.snr_ok = False
+
+    # ---- start / stop (Tk thread)
+    def start(self):
+        if self.active:
+            return ""
+        if self.app.audio is None:
+            self.error = "Audio isn't set up on the PC: run  py -m pip install sounddevice  and restart."
+            return self.error
+        self.reset()
+        self.active = True
+        threading.Thread(target=self._worker, daemon=True).start()
+        err = self.app.audio.add_listener(self)
+        if err:
+            self.stop()
+            self.error = err
+            return err
+        self.error = ""
+        return ""
+
+    def stop(self):
+        if not self.active:
+            return
+        self.active = False
+        self.ev.set()
+        if self.app.audio is not None:
+            self.app.audio.remove_listener(self)
+
+    def clear(self):
+        self.text = ""
+        self.sym = ""
+        self.held = ""
+        self.spaced = True
+
+    def wpm(self):
+        return int(round(120.0 / max(1.0, self.unit)))
+
+    # ---- audio in (PortAudio thread): just queue it
+    def push(self, ulaw):
+        self.q.append(ulaw)
+        self.ev.set()
+
+    # ---- processing thread
+    def _worker(self):
+        while self.active:
+            self.ev.wait(0.5)
+            self.ev.clear()
+            while self.q and self.active:
+                try:
+                    data = self.q.popleft()
+                except IndexError:
+                    break
+                pcm = array("h", map(_ulaw_tables()[1].__getitem__, data))
+                b = self.buf
+                for i in range(0, len(pcm) - 3, 4):
+                    b.append((pcm[i] + pcm[i + 1] + pcm[i + 2] + pcm[i + 3]) * 0.25)
+                while len(b) >= CWD_BLOCK:
+                    self._block(b[:CWD_BLOCK])
+                    del b[:CWD_BLOCK]
+
+    @staticmethod
+    def _goertzel(x, coef):
+        s1 = s2 = 0.0
+        for v in x:
+            s1, s2 = v + coef * s1 - s2, s1
+        return s1 * s1 + s2 * s2 - coef * s1 * s2
+
+    def _rig_pitch(self):
+        v = self.app.level_vals.get("KP")
+        return 300 + 10 * v if isinstance(v, int) else 700
+
+    def sens_params(self):
+        """(window in 10 ms blocks, signal gate, key-down level, key-up level) for the sensitivity setting.
+        A longer window is a narrower filter, so weaker signals stand out of the noise, but it smears
+        fast CW, so the window follows the measured speed (about half to two-thirds of a dot)."""
+        cap, per_dot, gate, on_k, off_k = CWD_SENS.get(self.sens, CWD_SENS["Auto"])
+        if self.sens not in CWD_SENS or self.sens == "Auto":
+            self.backoff = self.nblk - self.junk_at < 2000 and self.junk_n >= 3   # junk in the last 20 s
+            if self.backoff:
+                gate, on_k, off_k = CWD_SENS["High"][2:]
+        m = self.marks
+        known = len(m) >= 6 and max(m) >= 2 * min(m)       # speed measured from dots and dashes
+        want = max(1, min(cap if known else min(cap, 3), int(self.unit * per_dot + 0.5)))
+        n = self.win_n
+        if want != n and not self.key and not self.pend and self.gap > 3 * self.unit:
+            self.win_n = n = want                         # only change between characters
+        return min(n, cap), gate, on_k, off_k
+
+    def _block(self, x):
+        self.nblk += 1
+        settle = self.nblk < 40
+        rate = 0.1 if settle else 0.02
+        quiet = not self.key and not self.pend               # between marks: update the noise average
+        n, gate, on_k, off_k = self.sens_params()
+        h = self.hist
+        h.append(x)
+        del h[:-4]
+        win = [v for blk in h[-n:] for v in blk]
+        k = len(win) // CWD_BLOCK
+        if self.tone_mode == "Rig pitch":
+            f = self._rig_pitch()
+        else:                                              # Auto: the tone standing furthest above its noise
+            sw = [v for blk in h[-min(k, 2):] for v in blk]
+            ks = len(sw) // CWD_BLOCK
+            for f in CWD_TONES:
+                m = math.sqrt(max(0.0, self._goertzel(sw, self.coef[f]))) / ks
+                pk, fl = self.peak_by[f], self.floor_by[f]
+                if fl is None:
+                    fl = m
+                self.peak_by[f] = m if m > pk else pk + (m - pk) * 0.003
+                if m < 3.0 * fl or settle:
+                    self.floor_by[f] = fl + (m - fl) * rate
+            score = {f: self.peak_by[f] / max(1.0, self.floor_by[f]) for f in CWD_TONES}
+            best = max(score, key=score.get)
+            if best != self.tone and score[best] > gate + 2.0 and score[best] > 1.3 * score[self.tone] \
+                    and quiet and not settle:
+                self.tone = best
+                self.peak = self.peak_by[best]
+                self.floor = self.floor_by[best] * math.sqrt(ks / k)
+                self.sym = ""
+            f = self.tone
+        self.tone = f
+        coef = self.coef.get(f) or 2.0 * math.cos(2 * math.pi * f / CWD_RATE)
+        mag = math.sqrt(max(0.0, self._goertzel(win, coef))) / k
+        # a keyed tone is narrow; static crashes and clicks are wide: compare with 300 Hz either side
+        ref = 0.0
+        for rf in ((f - 300, f + 300) if f >= 500 else (f + 300, f + 450)):
+            ref += math.sqrt(max(0.0, self._goertzel(win, 2.0 * math.cos(2 * math.pi * rf / CWD_RATE)))) / k
+        narrow = mag > 2.0 * (ref / 2)
+        # signal level tracking
+        if self.floor is None:
+            self.floor = mag
+        fl, pk = self.floor, self.peak
+        if (quiet and mag < 3.0 * fl) or settle:
+            self.floor = fl + (mag - fl) * rate
+        self.peak = (pk + (mag - pk) * 0.5) if mag > pk else (pk + (mag - pk) * 0.003)
+        fl = max(1.0, self.floor)
+        span = self.peak - fl
+        self.snr_ok = self.peak > gate * fl and self.peak > 150 and not settle
+        self.level = 0.0 if span <= 0 else max(0.0, min(1.0, (mag - fl) / span))
+        if not self.snr_ok or not narrow:
+            down = False
+        elif self.key:
+            down = mag > max(fl + 0.35 * span, off_k * fl)
+        else:
+            down = mag > max(fl + 0.5 * span, on_k * fl)
+        self._timing(down)
+
+    def _timing(self, down):
+        """Key state per 10 ms block. A dip shorter than a fraction of a dot doesn't end a mark."""
+        u = self.unit
+        if down:
+            if self.key:
+                self.mark += 1
+            elif self.pend and self.gap < max(2.0, 0.35 * u):
+                self.mark += self.gap + 1                  # a short dip inside a mark
+                self.key, self.pend, self.gap = True, False, 0
+            else:
+                self.key, self.mark, self.gap = True, 1, 0
+            return
+        if self.key:
+            self.key, self.pend, self.gap = False, True, 1
+        else:
+            self.gap += 1
+        if self.pend and self.gap >= max(2.0, 0.35 * u):
+            self.pend = False
+            self._mark_done(self.mark)
+        if not self.pend:
+            g = self.gap
+            if self.sym and g > 2.0 * self.unit:
+                self._emit(MORSE.get(self.sym, "*"))
+                self.sym = ""
+            elif not self.sym and not self.spaced and g > 5.0 * self.unit:
+                self._emit(" ")
+
+    def _mark_done(self, n):
+        u = self.unit
+        if n < max(1.5, 0.3 * u):                          # a click or a burst of noise
+            return
+        m = self.marks
+        m.append(n)
+        del m[:-12]
+        lo, hi = min(m), max(m)
+        if len(m) >= 3 and hi >= 2.0 * lo:                 # dots and dashes both seen: split them
+            c1, c2 = float(lo), float(hi)
+            for _ in range(6):
+                t = (c1 + c2) / 2
+                a = [x for x in m if x < t]
+                b = [x for x in m if x >= t]
+                if not a or not b:
+                    break
+                c1, c2 = sum(a) / len(a), sum(b) / len(b)
+            thr = (c1 + c2) / 2
+            self.unit = u + ((c1 + c2 / 3.0) / 2 - u) * 0.3
+        else:
+            thr = 2.0 * u
+            self.unit = u + ((n if n < thr else n / 3.0) - u) * 0.2
+        self.unit = max(1.5, min(30.0, self.unit))
+        self.sym = (self.sym + ("." if n < thr else "-"))[-9:]
+
+    def _junk(self):
+        self.junk_n = min(6, self.junk_n + 1 if self.nblk - self.junk_at < 2000 else 1)
+        self.junk_at = self.nblk
+
+    def _emit(self, ch):
+        """Pass a character on. A lone E or T standing as a whole word is nearly always a static
+        crash, so it is held back until the next character shows it is part of a word."""
+        if self.held:
+            if ch == " ":                                  # E / T alone: drop it
+                self.held = ""
+                self._junk()
+                return
+            ch, self.held = self.held + ch, ""
+        elif self.spaced and ch in ("E", "T"):
+            self.held = ch
+            return
+        if "*" in ch:
+            self._junk()
+        elif ch.strip() and self.nblk - self.junk_at > 1000:
+            self.junk_n = max(0, self.junk_n - 1)          # good copy: forget old junk slowly
+        self.spaced = ch.endswith(" ")
+        self.text = (self.text + ch)[-4000:]
+        cb = self.on_text
+        if cb is not None:
+            self.app.ui(cb, ch)
+
+
 class WsConn:
     """Minimal WebSocket (RFC 6455) on an already upgraded, blocking socket."""
 
@@ -1387,6 +1723,8 @@ input[type=range]{width:100%;accent-color:var(--accent);height:32px;margin:0}
 .mem .mi{color:var(--muted);font-weight:500;font-size:12px}
 .mem .mf{font:700 15px ui-monospace,Menlo,monospace;color:var(--accent)}
 .hint{color:var(--muted);font-size:13px;margin:6px 2px}
+.cwdt{min-height:64px;max-height:150px;overflow-y:auto;background:#000;color:#fff;font:700 17px ui-monospace,Menlo,monospace;padding:8px 10px;border-radius:8px;margin-top:6px;white-space:pre-wrap;word-break:break-word;border:1px solid var(--border)}
+.cwdt:empty:before{content:'Decoded CW appears here';color:var(--dim);font-weight:500;font-size:13px}
 .foot{color:var(--dim);font-size:11px;text-align:center;margin-top:14px}
 .offline .page button,.offline .page select,.offline .page input{opacity:.45}
 #dock{position:fixed;left:0;right:0;bottom:0;z-index:20;background:rgba(21,22,24,.97);border-top:1px solid var(--border);
@@ -1447,9 +1785,13 @@ font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:30;w
 </section>
 <section id="pFUNC" class="page">
  <h3>Functions</h3><div id="toggles" class="grid g4"></div>
+ <p class="hint">ATU: tap to tune &middot; long-press to switch the tuner off</p>
  <h3>FM repeater shift</h3><div id="dups" class="grid g3"></div>
  <h3>CTCSS (tap to cycle OFF &rarr; TONE &rarr; TSQL)</h3><div class="grid g2"><span id="ctslot"></span><label class="sel"><span>Hz</span><select id="tone"></select></label></div>
  <h3>CW macros</h3><div id="macros" class="grid g3"></div>
+ <h3>CW decoder</h3><div class="row"><button id="cwdb" style="flex:none;padding:0 14px">DECODER OFF</button><span id="cwdi" class="hint" style="flex:1"></span><button id="cwdc" style="flex:none;padding:0 12px">CLEAR</button></div>
+ <div class="row" style="margin-top:6px"><label class="sel" style="flex:none"><span style="width:auto">Sensitivity</span><select id="cwds"><option>Auto</option><option>Low</option><option>Normal</option><option>High</option><option>Max</option></select></label><span id="cwdn" class="hint" style="flex:1"></span></div>
+ <div id="cwdt" class="cwdt"></div>
  <h3>Clarifier (RIT / XIT)</h3><div class="row rit"><button data-rit="-50">&minus;50</button><button data-rit="-10">&minus;10</button><span id="ritv">+0 Hz</span>
  <button data-rit="10">+10</button><button data-rit="50">+50</button><button data-rit="clr">CLR</button></div>
 </section>
@@ -1570,6 +1912,13 @@ function build(){
   $('splitslot').replaceWith(toggleBtn('split'));
   $('ctslot').replaceWith(toggleBtn('ctcss'));
   for(const k of ['nb','nr','anf','proc','vox','mon','bkin','keyer','rit','xit','lock'])$('toggles').append(toggleBtn(k));
+  {const x=el('button',{id:'atutune',textContent:'ATU',title:'Tap: tune. Long press: tuner off'});let lp=null,longDone=false;
+   const clr=()=>{if(lp){clearTimeout(lp);lp=null;}};
+   x.addEventListener('pointerdown',()=>{longDone=false;clr();lp=setTimeout(()=>{longDone=true;send({a:'atu_off'});toast('ATU off');},700);});
+   ['pointerup','pointerleave','pointercancel'].forEach(ev=>x.addEventListener(ev,clr));
+   x.addEventListener('contextmenu',e=>e.preventDefault());
+   x.onclick=()=>{if(longDone){longDone=false;return;}send({a:'atu_tune'});toast('ATU tuning \u2026 the radio transmits while it tunes');};
+   $('toggles').append(x);}
   CFG.macros.forEach((m,i)=>{const x=el('button',{textContent:'M'+(i+1),title:m,onclick:()=>{send({a:'macro',n:i});toast('CW: '+m);}});$('macros').append(x);});
   for(const n of [1,2,3,4]){const x=el('button',{textContent:'KEYER '+n,onclick:()=>send({a:'keyer',n})});$('macros').append(x);}
   for(const [lab,code] of [['SIMPLEX',0],['+ SHIFT',1],['\u2212 SHIFT',2]]){
@@ -1579,6 +1928,9 @@ function build(){
    s.onchange=()=>send({a:'tone',t:+s.value});}
   document.querySelectorAll('[data-rit]').forEach(b=>b.onclick=()=>{
     const d=b.dataset.rit;send(d==='clr'?{a:'rit_clear'}:{a:'rit',d:+d});});
+  $('cwdb').onclick=()=>send({a:'cwdec',on:!(S&&S.cwd&&S.cwd.on)});
+  $('cwdc').onclick=()=>{send({a:'cwd_clear'});$('cwdt').textContent='';};
+  $('cwds').onchange=e=>{send({a:'cwd_sens',v:e.target.value});cwdsTouched=Date.now();};
   $('pwr').onclick=()=>{
     if(!S||!S.online){toast('The PC has no USB connection to the radio');return;}
     if(S.rig_on){if(confirm('Switch the FTDX10 OFF?')){send({a:'power',on:false});toast('Switching off…');}}
@@ -1641,6 +1993,7 @@ function setTicks(tx){
   for(const [l,f] of (tx?CFG.pwr_ticks:CFG.s_ticks)){const s=el('span',{textContent:l});s.style.left=(f*100)+'%';if(!tx&&f>CFG.s9)s.className='r';t.append(s);}
 }
 function showTag(id,text,show){const e=$(id);e.hidden=!show;if(show)e.textContent=text;}
+let cwdsTouched=0;
 function render(){
   const s=S,on=s.online;
   document.body.classList.toggle('offline',!on);
@@ -1681,6 +2034,7 @@ function render(){
   if(stepFromRig&&s.step){$('step').value=String(s.step);stepFromRig=false;}
   {const e=$('tone');if(document.activeElement!==e&&s.tone)e.value=s.tone;}
   $('ritv').textContent=(s.rit>=0?'+':'')+s.rit+' Hz';
+  {const t=$('atutune'),a=s.toggles.atu;if(t){t.classList.toggle('on',!!s.atu_tuning||!!(a&&a[0]));t.textContent=s.atu_tuning?'TUNING':'ATU';}}
   const now=Date.now();
   for(const [sub,fmt,r,v] of lvRows){
     if(now-(touched[sub]||0)<2500)continue;
@@ -1688,6 +2042,10 @@ function render(){
     if(val!=null)r.value=val;
     v.textContent=levelText(fmt,val);
   }
+  {const c=s.cwd||{},b=$('cwdb'),t=$('cwdt');b.classList.toggle('on',!!c.on);b.textContent=c.on?'DECODER ON':'DECODER OFF';
+   $('cwdi').textContent=c.info||'';$('cwdn').textContent=c.sens_note||'';
+   if(c.sens&&Date.now()-cwdsTouched>2500&&document.activeElement!==$('cwds'))$('cwds').value=c.sens;
+   if(t.textContent!==(c.text||'')){const end=t.scrollTop+t.clientHeight>=t.scrollHeight-4;t.textContent=c.text||'';if(end)t.scrollTop=t.scrollHeight;}}
   updAudioUi();
   if(s.mem_rev!==memRev){const first=memRev===null;memRev=s.mem_rev;if(!first&&$('pMEM').classList.contains('on'))loadMem();}
 }
@@ -1836,7 +2194,7 @@ function buildAudio(){
 
 // ---------------- installable app (Android: Chrome turns it into a real installed app)
 let instEvt=null;
-const standalone=window.matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
+const standalone=window.matchMedia('(display-mode: standalone)').matches||navigator.standalone===true||/FTDX10App/.test(navigator.userAgent);
 function instShow(on){$('instbtn').hidden=!on;$('insttop').hidden=!on;}
 instShow(!standalone);                      // always offered unless it is already running as the app
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();instEvt=e;});
@@ -2405,6 +2763,11 @@ class FTDX10Controller:
         # Phone / browser access
         self.web = WebBridge(self)
         self.audio = AudioEngine(self) if AUDIO_READY else None
+        self.atu_busy = False                 # a TUNE started from here is running
+        self.atu_tuning = False               # the radio reports it is tuning (AC002)
+        self.cwdec = CwDecoder(self)
+        self.cwd_win = None
+        self.cwdec.on_text = self.cwd_append
         self.web_keyed = False
         self.sql_live = (None, 0.0)          # (squelch open?, when) straight from the polling thread
         self.web_mem_dirty = True
@@ -2461,6 +2824,8 @@ class FTDX10Controller:
             size_menu.add_radiobutton(label=name, value=name, variable=self.freq_size_var,
                                       command=self.change_freq_size)
         view_menu.add_cascade(label="Frequency size", menu=size_menu)
+        view_menu.add_separator()
+        view_menu.add_command(label="CW decoder...", command=self.open_cw_decoder)
         menubar.add_cascade(label="View", menu=view_menu)
         phone_menu = tk.Menu(menubar, tearoff=0)
         phone_menu.add_command(label="Phone access, audio (RX / TX) && HTTPS...", command=self.open_web_settings)
@@ -2748,12 +3113,21 @@ class FTDX10Controller:
             fr.columnconfigure(i, weight=1, uniform="fr")
             self.toggle_button(fr, k).grid(row=0, column=i, padx=px(2), sticky="ew")
 
-        self.caption(tab, "Transmit").pack(anchor="w", padx=px(12), pady=(px(8), 0))
+        th = tk.Frame(tab, bg=PANEL)
+        th.pack(fill="x", padx=px(12), pady=(px(8), 0))
+        self.caption(th, "Transmit").pack(side="left")
+        self.lbl(th, "ATU: click = tune  \u00b7  right-click = tuner off", fg=MUTED,
+                 font=F["small"]).pack(side="right")
         ft = tk.Frame(tab, bg=PANEL)
         ft.pack(fill="x", padx=px(10), pady=px(3))
         for i, k in enumerate(["proc", "vox", "mon", "bkin", "keyer", "lock"]):
             ft.columnconfigure(i, weight=1, uniform="ft")
             self.toggle_button(ft, k).grid(row=0, column=i, padx=px(2), sticky="ew")
+        ft.columnconfigure(6, weight=1, uniform="ft")
+        # ATU: a click starts the radio's tuning cycle (AC002); right-click switches the tuner off
+        self.btn_tune = self.btn(ft, "ATU", self.atu_tune, width=40, tone="amber")
+        self.btn_tune.grid(row=0, column=6, padx=px(2), sticky="ew")
+        self.btn_tune.bind("<Button-3>", lambda e: self.atu_off())
 
         self.caption(tab, "Clarifier (RIT / XIT)").pack(anchor="w", padx=px(12), pady=(px(8), 0))
         rr = tk.Frame(tab, bg=PANEL)
@@ -2812,6 +3186,147 @@ class FTDX10Controller:
         for n in range(1, CW_SLOT):
             self.btn(pr, str(n), lambda k=n: self.cat_status(f"KY{k};", f"PLAYING KEYER MEMORY {k}"),
                      width=34).pack(side="left", padx=px(2))
+        self.btn(pr, "CW DECODER", self.open_cw_decoder, width=96, tone="green").pack(side="right")
+
+    # ------------------------------------------------------- CW decoder window
+    def open_cw_decoder(self):
+        if self.cwd_win is not None and self.cwd_win.winfo_exists():
+            self.cwd_win.deiconify()
+            self.cwd_win.lift()
+            return
+        win = tk.Toplevel(self.root)
+        self.cwd_win = win
+        win.title("CW Decoder - FTDX10 Monitor")
+        win.configure(bg=PANEL)
+        win.geometry(self.config.get("cwd_geom") or f"{px(560)}x{px(250)}")
+        win.minsize(px(380), px(160))
+        if self.config.get("topmost"):
+            win.attributes("-topmost", True)
+        top = tk.Frame(win, bg=PANEL)
+        top.pack(fill="x", padx=px(10), pady=(px(8), px(4)))
+        self.cwd_onbtn = self.btn(top, "ON", self.cwd_toggle, width=52, tone="green")
+        self.cwd_onbtn.pack(side="left")
+        self.cwd_led = tk.Canvas(top, width=px(16), height=px(16), bg=PANEL, highlightthickness=0)
+        self.cwd_led.pack(side="left", padx=(px(10), px(4)))
+        self.cwd_led.create_oval(px(2), px(2), px(14), px(14), fill=FIELD, outline=BORDER, tags="led")
+        self.cwd_bar = tk.Canvas(top, width=px(90), height=px(8), bg=FIELD, highlightthickness=0)
+        self.cwd_bar.pack(side="left", padx=px(4))
+        self.cwd_bar.create_rectangle(0, 0, 0, px(8), fill=ACCENT, width=0, tags="bar")
+        self.cwd_info = self.lbl(top, "", fg=MUTED, font=F["mono_b"], width=17, anchor="w")
+        self.cwd_info.pack(side="left", padx=(px(8), 0))
+        self.btn(top, "CLEAR", self.cwd_clear, width=56).pack(side="right")
+        row2 = tk.Frame(win, bg=PANEL)
+        row2.pack(fill="x", padx=px(10), pady=(0, px(5)))
+        self.lbl(row2, "Tone", fg=MUTED, font=F["small"]).pack(side="left")
+        self.cwd_tone_var = tk.StringVar(value=self.cwdec.tone_mode)
+        cb = ttk.Combobox(row2, textvariable=self.cwd_tone_var, values=["Auto", "Rig pitch"], width=9,
+                          state="readonly")
+        cb.pack(side="left", padx=(px(4), px(14)))
+        cb.bind("<<ComboboxSelected>>", lambda e: self.cwd_set_tone())
+        self.lbl(row2, "Sensitivity", fg=MUTED, font=F["small"]).pack(side="left")
+        self.cwd_sens_var = tk.StringVar(value=self.cwdec.sens)
+        cs = ttk.Combobox(row2, textvariable=self.cwd_sens_var, values=CWD_SENS_NAMES, width=8,
+                          state="readonly")
+        cs.pack(side="left", padx=px(4))
+        cs.bind("<<ComboboxSelected>>", lambda e: self.cwd_set_sens(self.cwd_sens_var.get()))
+        self.cwd_sens_note = self.lbl(row2, "", fg=MUTED, font=F["small"], anchor="w")
+        self.cwd_sens_note.pack(side="left", padx=px(8), fill="x", expand=True)
+        body = tk.Frame(win, bg=LCD_BG, highlightthickness=1, highlightbackground=BORDER)
+        body.pack(fill="both", expand=True, padx=px(10))
+        sb = ttk.Scrollbar(body, orient="vertical")
+        txt = tk.Text(body, bg=LCD_BG, fg=LCD_TEXT, font=F["cw"], wrap="word", relief="flat", bd=0,
+                      padx=px(8), pady=px(6), insertwidth=0, yscrollcommand=sb.set, cursor="arrow")
+        sb.config(command=txt.yview)
+        sb.pack(side="right", fill="y")
+        txt.pack(side="left", fill="both", expand=True)
+        txt.insert("end", self.cwdec.text)
+        txt.see("end")
+        txt.bind("<Key>", lambda e: None if (e.state & 4 and e.keysym.lower() in ("c", "a")) else "break")
+        self.cwd_text = txt
+        self.cwd_status = self.lbl(win, "", fg=MUTED, font=F["small"], anchor="w")
+        self.cwd_status.pack(fill="x", padx=px(10), pady=(px(3), px(6)))
+        win.protocol("WM_DELETE_WINDOW", self.close_cw_decoder)
+        self.cwdec.on_text = self.cwd_append
+        if not self.cwdec.active:
+            self.cwdec.start()
+        self.cwd_tick()
+
+    def close_cw_decoder(self):
+        win = self.cwd_win
+        if win is not None and win.winfo_exists():
+            self.config["cwd_geom"] = win.geometry()
+            win.destroy()
+        self.cwd_win = None
+        self.cwdec.stop()
+
+    def cwd_toggle(self):
+        if self.cwdec.active:
+            self.cwdec.stop()
+        else:
+            self.cwdec.start()
+        self.cwd_tick(once=True)
+
+    def cwd_set_tone(self):
+        mode = self.cwd_tone_var.get()
+        self.cwdec.tone_mode = mode
+        self.config["cwd_tone"] = mode
+
+    def cwd_set_sens(self, name):
+        if name not in CWD_SENS_NAMES:
+            return
+        self.cwdec.sens = name
+        self.config["cwd_sens"] = name
+        if self.cwd_win is not None and self.cwd_win.winfo_exists():
+            self.cwd_sens_var.set(name)
+
+    def cwd_sens_text(self):
+        """A few words on what the sensitivity setting is doing."""
+        d = self.cwdec
+        if d.sens == "Auto":
+            return "backed off: static / noise" if d.backoff else "most sensitive, follows the speed"
+        return {"Low": "strong signals only", "Normal": "clean signals",
+                "High": "weak signals", "Max": "weakest signals; more noise errors"}.get(d.sens, "")
+
+    def cwd_clear(self):
+        self.cwdec.clear()
+        if self.cwd_win is not None and self.cwd_win.winfo_exists():
+            self.cwd_text.delete("1.0", "end")
+
+    def cwd_append(self, ch):
+        if self.cwd_win is None or not self.cwd_win.winfo_exists():
+            return
+        t = self.cwd_text
+        at_end = t.yview()[1] > 0.98
+        t.insert("end", ch)
+        if float(t.index("end-1c").split(".")[0]) > 400:
+            t.delete("1.0", "100.0")
+        if at_end:
+            t.see("end")
+
+    def cwd_tick(self, once=False):
+        win = self.cwd_win
+        if win is None or not win.winfo_exists():
+            return
+        d = self.cwdec
+        on = d.active
+        self.cwd_onbtn.set_active(on, "ON" if on else "OFF", tone="green" if on else "red")
+        sig = on and d.snr_ok
+        self.cwd_led.itemconfig("led", fill=(GREEN if d.key else ACCENT_DIM) if sig else FIELD)
+        w = int(px(90) * (d.level if sig else 0))
+        self.cwd_bar.coords("bar", 0, 0, w, px(8))
+        self.cwd_info.config(text=f"{d.tone} Hz  {d.wpm()} WPM" if sig else ("waiting for CW" if on else ""))
+        if not on:
+            st = d.error or "Decoder off"
+        elif self.audio is not None and self.audio.in_stream is not None:
+            st = f"Listening to {self.audio.in_name}"
+            if self.audio.squelched():
+                st += " \u00b7 muted: rig squelch is closed"
+        else:
+            st = (self.audio.error if self.audio is not None else "") or "Opening the radio's audio..."
+        self.cwd_status.config(text=st, fg=RED if (not on and d.error) else MUTED)
+        self.cwd_sens_note.config(text=self.cwd_sens_text())
+        if not once:
+            self.root.after(100, self.cwd_tick)
 
     def send_macro(self, n):
         self.save_macros()
@@ -3143,6 +3658,7 @@ class FTDX10Controller:
         self.want_connect = False
         self.disconnect(user=True)
         self.web.stop()
+        self.cwdec.stop()
         if self.audio is not None:
             self.audio.close()
         self.root.destroy()
@@ -3289,9 +3805,16 @@ class FTDX10Controller:
     # ------------------------------------------------------------ readers
     def read_toggle(self, key):
         _, prefix, vals, _, digits = TOGGLES[key]
-        ans = self.cat(prefix + ";")
+        ans = self.cat("AC;" if key == "atu" else prefix + ";")
         if not ans or ans == "?" or not ans.startswith(prefix):
             return None
+        if key == "atu":                      # AC00 0 off / 1 on / 2 tuning
+            try:
+                v = int(ans[4])
+            except (ValueError, IndexError):
+                return None
+            self.atu_tuning = v == 2
+            return 1 if v >= 1 else 0
         try:
             v = int(ans[len(prefix):len(prefix) + digits])
         except ValueError:
@@ -3685,6 +4208,11 @@ class FTDX10Controller:
             "atok": self.web.audio_token, "audio_sql": bool(self.config.get("audio_sql", True)),
             "sql_muted": bool(self.audio is not None and self.audio.listener_count() and self.audio.squelched()),
             "https_url": self.web.https_url,
+            "atu_tuning": bool(on and (self.atu_busy or self.atu_tuning)),
+            "cwd": {"on": self.cwdec.active, "text": self.cwdec.text[-240:],
+                    "info": (f"{self.cwdec.tone} Hz \u00b7 {self.cwdec.wpm()} WPM" if self.cwdec.snr_ok
+                             else "waiting for CW") if self.cwdec.active else (self.cwdec.error or ""),
+                    "sens": self.cwdec.sens, "sens_note": self.cwd_sens_text()},
             "audio_info": self.audio.status() if self.audio is not None else "",
             "audio_err": (self.audio.error if self.audio is not None else
                           "Audio isn't set up on the PC: run  py -m pip install sounddevice  there and restart the program."),
@@ -3745,6 +4273,22 @@ class FTDX10Controller:
                 n = int(c["n"])
                 if 0 <= n < len(self.config["cw_macros"]):
                     self.send_macro(n)
+            elif a == "atu_tune":
+                self.atu_tune(" FROM PHONE")
+            elif a == "atu_off":
+                self.atu_off()
+            elif a == "cwdec":
+                if c.get("on"):
+                    self.cwdec.on_text = self.cwd_append
+                    self.cwdec.start()
+                else:
+                    self.cwdec.stop()
+                if self.cwd_win is not None and self.cwd_win.winfo_exists():
+                    self.cwd_tick(once=True)
+            elif a == "cwd_clear":
+                self.cwd_clear()
+            elif a == "cwd_sens":
+                self.cwd_set_sens(str(c.get("v")))
             elif a == "keyer":
                 n = int(c["n"])
                 if 1 <= n < CW_SLOT:
@@ -3992,6 +4536,8 @@ class FTDX10Controller:
         self.post(job)
 
     def refresh_toggle(self, key):
+        if key == "atu":
+            self.refresh_tune()
         label, _, vals, texts, _ = TOGGLES[key]
         v = self.toggle_state.get(key)
         text = texts[vals.index(v)] if (texts and v in vals) else label
@@ -4149,7 +4695,7 @@ class FTDX10Controller:
         self.root.after(250, self.flash_tx)
 
     STATUS_ORDER = ["amp", "att", "agc", "nb", "nr", "anf", "nar", "proc", "vox", "mon", "bkin",
-                    "keyer", "ctcss", "rit", "xit", "split", "lock"]
+                    "keyer", "atu", "ctcss", "rit", "xit", "split", "lock"]
 
     def draw_status(self):
         c = self.status_canvas
@@ -4287,6 +4833,66 @@ class FTDX10Controller:
             c.create_text(px(10), 45, text="Po", anchor="w", fill=LCD_DIM, font=sf)
         c.scale("all", 0, 0, 1, SCALE)
 
+
+    def atu_tune(self, who=""):
+        """Start the FTDX10's internal antenna tuner (AC002;). The radio transmits a carrier while it tunes."""
+        if not self.running or self.atu_busy:
+            return
+        if not self.radio_is_on():
+            self.flash_status("RADIO IS OFF - CAN'T TUNE", RED, 3)
+            return
+        self.atu_busy = True
+        self.refresh_tune()
+        self.flash_status(f"ATU TUNING{who} - the radio transmits a carrier while it tunes ...", AMBER, 12)
+        self.toggle_touch["atu"] = time.time()
+
+        def job():
+            ok = None
+            try:
+                self.cat("AC002;", reply=False)
+                time.sleep(0.8)
+                t0 = time.time()
+                seen = False
+                while time.time() < t0 + 15 and self.running:
+                    ans = self.cat("AC;")
+                    if ans and ans.startswith("AC00") and len(ans) >= 5:
+                        if ans[4] == "2":
+                            seen = True               # the radio says it is tuning
+                        elif seen or (time.time() > t0 + 3 and not self.is_tx):
+                            ok = ans[4] == "1"        # finished: tuner on = matched
+                            break
+                    elif ans == "?":
+                        ok = False
+                        break
+                    time.sleep(0.4)
+            finally:
+                def done():
+                    self.atu_busy = False
+                    self.atu_tuning = False
+                    self.refresh_tune()
+                    if ok:
+                        self.toggle_state["atu"] = 1
+                        self.refresh_toggle("atu")
+                        self.flash_status("ATU TUNED", GREEN, 3)
+                    elif ok is False:
+                        self.flash_status("ATU DID NOT TUNE (check the antenna, band and RF power)", RED, 5)
+                    else:
+                        self.flash_status("ATU: no answer from the radio", ORANGE, 4)
+                self.ui(done)
+        self.post(job)
+
+    def refresh_tune(self):
+        b = getattr(self, "btn_tune", None)
+        if b is not None:
+            busy = self.atu_busy or self.atu_tuning
+            on = busy or self.toggle_state.get("atu") == 1
+            b.set_active(on, "TUNING" if busy else "ATU", tone="amber")
+
+    def atu_off(self):
+        """Switch the antenna tuner off (right-click on ATU, or a long press on the phone)."""
+        if self.running and not self.atu_busy:
+            self.set_toggle_value("atu", 0)
+            self.flash_status("ATU OFF", MUTED, 2)
 
     def click_toggle(self, key):
         if not self.running:

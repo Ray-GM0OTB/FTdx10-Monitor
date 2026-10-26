@@ -1,6 +1,6 @@
 ; Inno Setup script for FTDX10 Monitor (built by build_installer.bat)
 #define AppName "FTDX10 Monitor"
-#define AppVersion "1.7"
+#define AppVersion "2.3"
 #define AppPublisher "GM0OTB"
 #define AppExe "FTDX10 Monitor.exe"
 
