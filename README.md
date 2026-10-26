@@ -37,18 +37,21 @@ Also: [Troubleshooting](docs/troubleshooting.md) · [CAT commands used](docs/cat
 <p>
 <img src="screenshots/desktop-tune.png" width="240" alt="Desktop: TUNE tab with modes and bands">
 <img src="screenshots/desktop-levels.png" width="240" alt="Desktop: LEVELS tab">
-<img src="screenshots/desktop-func.png" width="240" alt="Desktop: FUNC tab, S-meter above S9">
+<img src="screenshots/desktop-func.png" width="240" alt="Desktop: FUNC tab with the ATU key">
+<img src="screenshots/desktop-cw.png" width="240" alt="Desktop: CW tab with macros and the CW DECODER key">
 </p>
+<p><img src="screenshots/desktop-cw-decoder.png" width="420" alt="CW decoder window with tone and sensitivity settings"></p>
 
-*The Windows program on a live FTDX10: TUNE, LEVELS and FUNC tabs.*
+*Version 2.3 on a live FTDX10: TUNE, LEVELS (red LED knobs), FUNC (ATU) and CW tabs, and the CW decoder window.*
 
 <p>
 <img src="screenshots/phone-tune.png" width="240" alt="Phone page: tuning, bands and modes">
 <img src="screenshots/phone-func.png" width="240" alt="Phone page: functions, repeater shift, CTCSS, CW macros">
 <img src="screenshots/phone-levels.png" width="240" alt="Phone page: levels">
+<img src="screenshots/phone-cw.png" width="240" alt="Phone page: CW decoder">
 </p>
 
-*The phone page: tuning, functions and levels. Images show sample radio data.*
+*The phone page: tuning, functions (with ATU), levels and the CW decoder. Images show sample radio data.*
 
 ## Quick start
 

@@ -20,6 +20,7 @@ The FTDX10's USB connection shows two COM ports in Windows. CAT is on the **Enha
 <p>
 <img src="../screenshots/desktop-vfo.png" width="300" alt="VFO tab">
 <img src="../screenshots/desktop-func.png" width="300" alt="FUNC tab">
+<img src="../screenshots/desktop-levels.png" width="300" alt="LEVELS tab with the red LED knobs">
 </p>
 
 | Part | What it shows or does |
@@ -69,6 +70,9 @@ On the phone's FUNC tab, tap **ATU** to tune and long-press it to switch the tun
 ## CW decoder
 
 Click **CW DECODER** on the CW tab (or **View > CW decoder…**). A separate window opens and starts decoding the radio's receive audio:
+
+<img src="../screenshots/desktop-cw-decoder.png" width="420" alt="CW decoder window">
+
 
 | Part | What it does |
 | --- | --- |

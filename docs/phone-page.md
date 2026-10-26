@@ -6,6 +6,7 @@ FTDX10 Monitor has a built-in, password-protected web page for your phone: displ
 <img src="../screenshots/phone-tune.png" width="240" alt="TUNE tab">
 <img src="../screenshots/phone-func.png" width="240" alt="FUNC tab">
 <img src="../screenshots/phone-levels.png" width="240" alt="LEVELS tab">
+<img src="../screenshots/phone-cw.png" width="240" alt="FUNC tab: CW decoder">
 </p>
 
 ## Setting up (once)
